@@ -18,6 +18,7 @@
 
 from timeit import default_timer as timer
 import numpy as np
+from scipy.spatial.distance import cdist
 from scipy.linalg import eigh
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh, svds
@@ -25,7 +26,7 @@ from sklearn.metrics.pairwise import rbf_kernel
 
 __author__ = 'Burak T. Kaynak'
 __license__ = 'GPLv3'
-__version__ = '0.1'
+__version__ = '0.2'
 __email__ = 'kaynakb@gmail.com'
 
 
@@ -35,21 +36,23 @@ class Diffusion_Maps:
        [1] R. R. Coifman, S. Lafon, Diffusion maps, Appl. Comput. Harmon. Anal., 21 (2006) 5-30.'''
 
     __slots__ = [
-        '_data', '_alpha', '_epsilon', '_time', '_n_eigvecs', '_kernel_alpha',
-        '_d_alpha', '_eigvals', '_eigvecs', '_diffusion_maps'
+        '_data', '_alpha', '_time', '_epsilon', '_n_neighbors', '_n_eigvecs',
+        '_dist', '_kernel_alpha', '_d_alpha', '_eigvals', '_eigvecs',
+        '_diffusion_map'
     ]
 
     def __init__(self,
                  data,
                  alpha=1.0,
-                 epsilon=None,
                  time=0.0,
-                 n_eigvecs='all'):
+                 epsilon=None,
+                 n_neighbors=10,
+                 n_eigvecs=6):
         '''
 Docstring:
-Diffusion_Maps(data, alpha=1.0, epsilon=None, time=0.0, n_eigvecs='all')
+Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, n_neighbors=10, n_eigvecs=6)
 
-Creates a Diffusion_Maps instance.
+Instantiate an object of type Diffusion_Maps.
 
 Parameters
 ----------
@@ -58,23 +61,32 @@ data : array like
 alpha : float, optional
       Anisotropic diffusion parameter, which takes values one of the following
       values: 0.0, 1/2, 1.0
-epsilon : float, optional
-        Scale parameter, whose deafult value is None that corresponds to
-        the dimension of the feature space.
 time : float, optional
      Time steps (default None).
+epsilon : float, optional
+        Scale parameter (default None).
+n_neighbors : int, optional
+            Number of neighbors (default 10) to calcualte epsilon.
 n_eigvecs : int, optional
-          Dimension of the embedding, (default 'all').'''
+          Dimension of the embedding, (default 6). It should be set to 'all' to calculate all the eigenvectors.'''
 
         self._data = data
         self._alpha = alpha
-        self._epsilon = float(
-            self._data.shape[1]) if epsilon is None else epsilon
         self._time = time
+        self._epsilon = epsilon
+        if epsilon is None:
+            self._n_neighbors = n_neighbors
+        else:
+            self._n_neighbors = None
         self._n_eigvecs = n_eigvecs
+        self._dist = None
+        self._kernel_alpha = None
+        self._d_alpha = None
+        self._eigvals = None
+        self._eigvecs = None
+        self._diffusion_map = None
 
-        self.generate_diffusion_maps(self._alpha, self._epsilon, self._time,
-                                     self._n_eigvecs)
+        self.generate_diffusion_map()
 
     @property
     def data(self):
@@ -97,6 +109,16 @@ Return the value of alpha.'''
         return self._alpha
 
     @property
+    def time(self):
+        '''
+Docstring:
+times
+
+Return the value of time.'''
+
+        return self._time
+
+    @property
     def epsilon(self):
         '''
 Docstring:
@@ -107,14 +129,14 @@ Return the value of epsilon.'''
         return self._epsilon
 
     @property
-    def time(self):
+    def n_neighbors(self):
         '''
 Docstring:
-times
+n_neighbors
 
-Return the value of time.'''
+Return the number of neighbors.'''
 
-        return self._time
+        return self._n_neighbors
 
     @property
     def n_eigvecs(self):
@@ -157,21 +179,32 @@ Return the renormalized eigenvectors of the diffusion operator.'''
         return self._eigvecs
 
     @property
-    def diffusion_maps(self):
+    def diffusion_map(self):
         '''
 Docstring:
-diffusion_maps
+diffusion_map
 
 Return the diffusion map.'''
 
-        return self._diffusion_maps
+        return self._diffusion_map
+
+    def __calc_epsilon(self):
+
+        self._dist = cdist(self._data, self._data)
+        dsk = np.median(np.sort(self._dist, 0)[1:self._n_neighbors + 1], 0)
+        self._epsilon = dsk.reshape(-1, 1) * dsk
 
     def __generate_kernel(self):
 
         t0 = timer()
 
-        k_init = rbf_kernel(self._data, gamma=1 / self._epsilon)
-        # k_init = k_init - np.eye(k_init.shape[0])  # prohibits self-transitions
+        if self._n_neighbors is not None:
+            self.__calc_epsilon()
+            k_init = np.exp(-self._dist**2 / self._epsilon)
+        else:
+            k_init = rbf_kernel(self._data, gamma=1/self._epsilon)
+        k_init = k_init - np.eye(k_init.shape[0])  # prohibits self-transitions
+
         d_init = np.sum(k_init, 1)
         d_init_alp_inv = np.diag(d_init**(-self._alpha))
         self._kernel_alpha = d_init_alp_inv @ k_init @ d_init_alp_inv
@@ -186,45 +219,7 @@ Return the diffusion map.'''
         t10 = round(t1 - t0, 3)
         print('time elapsed for the computation of the kernel: {}'.format(t10))
 
-    def generate_diffusion_maps(self,
-                                alpha=None,
-                                epsilon=None,
-                                time=None,
-                                n_eigvecs=None):
-        '''
-Docstring:
-generate_diffusion_maps(alpha=None, epsilon=None, time=None, n_eigvecs=None)
-
-Generate another diffusion map for the same instance with a different set of parameters.
-
-Parameters
-----------
-alpha : float, optional
-      Anisotropic diffusion parameter, which takes values one of the following
-      values: 0.0, 1/2, 1.0
-epsilon : float, optional
-        Scale parameter, whose deafult value is None that corresponds to
-        the dimension of the feature space.
-time : float, optional
-     Time steps (default None).
-n_eigvecs : int, optional
-          Dimension of the embedding, (default 'all').'''
-
-        t0 = timer()
-
-        if alpha is not None:
-            self._alpha = alpha
-
-        if epsilon is not None:
-            self._epsilon = epsilon
-
-        if time is not None:
-            self._time = time
-
-        if n_eigvecs is not None:
-            self._n_eigvecs = n_eigvecs
-
-        self.__generate_kernel()
+    def __calc_eigs(self):
 
         if self._n_eigvecs == 'all':
 
@@ -232,7 +227,6 @@ n_eigvecs : int, optional
             self._eigvals = l[::-1]
             self._eigvecs = v[:, ::-1]
             self._eigvecs = self._eigvecs / self._eigvecs[0, 0]
-            self._diffusion_maps = self._eigvecs * self._eigvals**self._time
 
         else:
 
@@ -243,7 +237,6 @@ n_eigvecs : int, optional
             self._eigvals = l[::-1]
             self._eigvecs = v[:, ::-1]
             self._eigvecs = self._eigvecs / self._eigvecs[0, 0]
-            self._diffusion_maps = self._eigvecs * self._eigvals**self._time
 
             # The following method can also be used to obtain the diffusion maps.
             # It gives the same result possibly up to a phase.
@@ -259,7 +252,66 @@ n_eigvecs : int, optional
             # self._eigvals = s[::-1]
             # self._eigvecs = dts @ u[:, ::-1]
             # self._eigvecs = self._eigvecs / self._eigvecs[0, 0]
-            # self._diffusion_maps = self._eigvecs * self._eigvals**self._time
+            # self._diffusion_map = self._eigvecs * self._eigvals**self._time
+
+    def generate_diffusion_map(self,
+                               alpha=None,
+                               time=None,
+                               n_neighbors=None,
+                               epsilon=None,
+                               n_eigvecs=None):
+        '''
+Docstring:
+generate_diffusion_map(alpha=None, time=None, epsilon=None, n_neighbors=None, n_eigvecs=None)
+
+Generate another diffusion map for the same instance with a different set of parameters.
+
+Parameters
+----------
+alpha : float, optional
+      Anisotropic diffusion parameter, which takes values one of the following
+      values: 0.0, 1/2, 1.0
+time : float, optional
+     Time steps (default None).
+epsilon : float, optional
+        Scale parameter (default None).
+n_neighbors : int, optional
+            Number of neighbors (default 10) to calcualte epsilon.
+n_eigvecs : int, optional
+          Dimension of the embedding, (default 6). It should be set to 'all' to calculate all the eigenvectors.'''
+
+        t0 = timer()
+
+        if self._kernel_alpha is None:
+            self.__generate_kernel()
+            self.__calc_eigs()
+
+        if (alpha is None) and (epsilon is None) and (n_neighbors is None):
+            if n_eigvecs is not None:
+                self._n_eigvecs = n_eigvecs
+                self.__calc_eigs()
+        else:
+            if alpha is not None:
+                self._alpha = alpha
+
+            if epsilon is not None:
+                self._epsilon = epsilon
+                self._n_neighbors = None
+
+            if n_neighbors is not None:
+                self._n_neighbors = n_neighbors
+
+            self.__generate_kernel()
+
+            if n_eigvecs is not None:
+                self._n_eigvecs = n_eigvecs
+
+            self.__calc_eigs()
+
+        if time is not None:
+            self._time = time
+
+        self._diffusion_map = self._eigvecs * self._eigvals**self._time
 
         t1 = timer()
         t10 = round(t1 - t0, 3)
