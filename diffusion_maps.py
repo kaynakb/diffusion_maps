@@ -60,7 +60,7 @@ data : array like
 alpha : float, optional (default = 1.0)
       Anisotropic diffusion parameter, which takes values one of the following
       values: 0.0, 1/2, 1.0
-time : float, optional (default = None)
+time : float, optional (default = 0.0)
      Time steps.
 epsilon : float, optional (default = None)
         Scale parameter.
@@ -293,17 +293,17 @@ Generate another diffusion map for the same instance with a different set of par
 
 Parameters
 ----------
-alpha : float, optional
+alpha : float, optional (default = None)
       Anisotropic diffusion parameter, which takes values one of the following
       values: 0.0, 1/2, 1.0
-time : float, optional
-     Time steps (default None).
-epsilon : float, optional
-        Scale parameter (default None).
-n_neighbors : int, optional
-            Number of neighbors (default 10) to calcualte epsilon.
-n_eigvecs : int, optional
-          Dimension of the embedding, (default 6). It should be set to 'all' to calculate all the eigenvectors.'''
+time : float, optional (default = None)
+     Time steps.
+epsilon : float, optional (default = None)
+        Scale parameter.
+n_neighbors : int, optional (default = None)
+            Number of neighbors to calcualte epsilon.
+n_eigvecs : int, optional (default = None)
+          Dimension of the embedding. It should be set to 'all' to calculate all the eigenvectors.'''
 
         t0 = timer()
 
