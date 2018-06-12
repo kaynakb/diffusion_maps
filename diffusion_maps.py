@@ -1,5 +1,5 @@
-# diffusion_maps.py is a compact python module for the (an)isotropic diffusion
-# maps technique based on the research article of Coifman and Lafon [1].
+# diffusion_maps.py is a compact python module for a modified version of the (an)isotropic
+# diffusion maps technique based on the research article of Coifman and Lafon [1].
 
 # [1] R. R. Coifman, S. Lafon, Diffusion maps, Appl. Comput. Harmon. Anal., 21 (2006) 5-30.
 
@@ -22,23 +22,21 @@ from scipy.spatial.distance import cdist
 from scipy.linalg import eigh
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh, svds
-from sklearn.metrics.pairwise import rbf_kernel
+from sklearn.metrics.pairwise import _parallel_pairwise, rbf_kernel
 
 __author__ = 'Burak T. Kaynak'
 __license__ = 'GPLv3'
-__version__ = '0.2'
+__version__ = '0.3'
 __email__ = 'kaynakb@gmail.com'
 
 
 class Diffusion_Maps:
-    '''An implementation of (an)isotropic diffusion maps, originally written by Coifman and Lafon [1].
-
-       [1] R. R. Coifman, S. Lafon, Diffusion maps, Appl. Comput. Harmon. Anal., 21 (2006) 5-30.'''
+    'An implementation of (an)isotropic diffusion maps technique.'
 
     __slots__ = [
         '_data', '_alpha', '_time', '_epsilon', '_n_neighbors', '_n_eigvecs',
-        '_dist', '_kernel_alpha', '_d_alpha', '_eigvals', '_eigvecs',
-        '_diffusion_map'
+        '_n_jobs', '_dist', '_kernel_alpha', '_d_alpha', '_eigvals',
+        '_eigvecs', '_diffusion_map'
     ]
 
     def __init__(self,
@@ -47,10 +45,11 @@ class Diffusion_Maps:
                  time=0.0,
                  epsilon=None,
                  n_neighbors=10,
-                 n_eigvecs=6):
+                 n_eigvecs=6,
+                 n_jobs=1):
         '''
 Docstring:
-Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, n_neighbors=10, n_eigvecs=6)
+Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, n_neighbors=10, n_eigvecs=6, n_jobs=1)
 
 Instantiate an object of type Diffusion_Maps.
 
@@ -58,17 +57,20 @@ Parameters
 ----------
 data : array like
      Data
-alpha : float, optional
+alpha : float, optional (default = 1.0)
       Anisotropic diffusion parameter, which takes values one of the following
       values: 0.0, 1/2, 1.0
-time : float, optional
-     Time steps (default None).
-epsilon : float, optional
-        Scale parameter (default None).
-n_neighbors : int, optional
-            Number of neighbors (default 10) to calcualte epsilon.
-n_eigvecs : int, optional
-          Dimension of the embedding, (default 6). It should be set to 'all' to calculate all the eigenvectors.'''
+time : float, optional (default = None)
+     Time steps.
+epsilon : float, optional (default = None)
+        Scale parameter.
+n_neighbors : int, optional (default = 10)
+            Number of neighbors to calcualte epsilon.
+n_eigvecs : int, optional (default = 6)
+          Dimension of the embedding. It should be set to 'all' to calculate all the eigenvectors.
+n_jobs : int, optional (default = 1)
+       The number of parallel jobs to run when the distance matrix is to be calculated.
+If -1, then the number of jobs is set to the number of CPU cores.'''
 
         self._data = data
         self._alpha = alpha
@@ -79,6 +81,7 @@ n_eigvecs : int, optional
         else:
             self._n_neighbors = None
         self._n_eigvecs = n_eigvecs
+        self._n_jobs = n_jobs
         self._dist = None
         self._kernel_alpha = None
         self._d_alpha = None
@@ -159,6 +162,26 @@ Return the renormalized kernel.'''
         return self._kernel_alpha
 
     @property
+    def measure(self):
+        '''
+Docstring:
+measure
+
+Return the Riemannian measure.'''
+
+        return self._d_alpha / np.sum(self._d_alpha)
+
+    @property
+    def probability(self):
+        '''
+Docstring:
+probability
+
+Return the transition probability.'''
+
+        return np.diag(1 / self._d_alpha) @ self._kernel_alpha
+
+    @property
     def eigvals(self):
         '''
 Docstring:
@@ -190,9 +213,10 @@ Return the diffusion map.'''
 
     def __calc_epsilon(self):
 
-        self._dist = cdist(self._data, self._data)
-        dsk = np.median(np.sort(self._dist, 0)[1:self._n_neighbors + 1], 0)
-        self._epsilon = dsk.reshape(-1, 1) * dsk
+        self._dist = _parallel_pairwise(
+            self._data, self._data, cdist, n_jobs=self._n_jobs)
+        dsn = np.median(np.sort(self._dist, 0)[1:self._n_neighbors + 1], 0)
+        self._epsilon = dsn.reshape(-1, 1) * dsn
 
     def __generate_kernel(self):
 
@@ -202,12 +226,13 @@ Return the diffusion map.'''
             self.__calc_epsilon()
             k_init = np.exp(-self._dist**2 / self._epsilon)
         else:
-            k_init = rbf_kernel(self._data, gamma=1/self._epsilon)
-        k_init = k_init - np.eye(k_init.shape[0])  # prohibits self-transitions
+            k_init = rbf_kernel(self._data, gamma=1 / self._epsilon)
+        # k_init = k_init - np.eye(k_init.shape[0])  # prohibits self-transitions
 
         d_init = np.sum(k_init, 1)
-        d_init_alp_inv = np.diag(d_init**(-self._alpha))
-        self._kernel_alpha = d_init_alp_inv @ k_init @ d_init_alp_inv
+        d_init_alpha = d_init**(-self._alpha)
+        d_init_alpha_mat = d_init_alpha.reshape(-1, 1) * d_init_alpha
+        self._kernel_alpha = k_init / d_init_alpha_mat
         if np.allclose(self._kernel_alpha, self._kernel_alpha.T):
             pass
         else:
