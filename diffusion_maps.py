@@ -143,9 +143,9 @@ Return the value of epsilon.'''
     def epsilon_const(self):
         '''
 Docstring:
-epsilon
+epsilon_const
 
-Return the value of epsilon.'''
+Return the value of epsilon_const.'''
 
         return self._epsilon_const
 
