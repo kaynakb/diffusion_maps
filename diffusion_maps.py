@@ -1,7 +1,11 @@
 # diffusion_maps.py is a compact python module for a modified version of the (an)isotropic
-# diffusion maps technique based on the research article of Coifman and Lafon [1].
+# diffusion maps technique with a variable bandwith based on the research article by Coifman and 
+# Lafon [1]. The version of the modification used in the module is based on the discussion
+# presented in the research article by Zelnic-Manor and Perona [2].
 
 # [1] R. R. Coifman, S. Lafon, Diffusion maps, Appl. Comput. Harmon. Anal., 21 (2006) 5-30.
+# [2] L. Zelnic-Manor, P. Parona, Self-tuning spectral clustering, Adv. NIPS. 17,
+# (MIT, Cambridge, MA, 2004) 1601-1608.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,8 +38,8 @@ class Diffusion_Maps:
     'An implementation of (an)isotropic diffusion maps technique.'
 
     __slots__ = [
-        '_data', '_alpha', '_time', '_epsilon', '_n_neighbors', '_n_eigvecs',
-        '_n_jobs', '_dist', '_kernel_alpha', '_d_alpha', '_eigvals',
+        '_data', '_alpha', '_time', '_epsilon', '_epsilon_const', '_n_neighbors',
+        '_n_eigvecs', '_n_jobs', '_dist', '_kernel_alpha', '_d_alpha', '_eigvals',
         '_eigvecs', '_diffusion_map'
     ]
 
@@ -44,12 +48,13 @@ class Diffusion_Maps:
                  alpha=1.0,
                  time=0.0,
                  epsilon=None,
+                 epsilon_const=1.0,
                  n_neighbors=10,
                  n_eigvecs=6,
                  n_jobs=1):
         '''
 Docstring:
-Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, n_neighbors=10, n_eigvecs=6, n_jobs=1)
+Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, epsilon_const=1.0, n_neighbors=10, n_eigvecs=6, n_jobs=1)
 
 Instantiate an object of type Diffusion_Maps.
 
@@ -64,6 +69,8 @@ time : float, optional (default = 0.0)
      Time steps.
 epsilon : float, optional (default = None)
         Scale parameter.
+epsilon_const : float, optional (default = 1.0)
+        Scale parameter, multiplying the variable bandwidth, epsilon_const = O(1).
 n_neighbors : int, optional (default = 10)
             Number of neighbors to calcualte epsilon.
 n_eigvecs : int, optional (default = 6)
@@ -76,6 +83,7 @@ If -1, then the number of jobs is set to the number of CPU cores.'''
         self._alpha = alpha
         self._time = time
         self._epsilon = epsilon
+        self._epsilon_const = epsilon_const
         if epsilon is None:
             self._n_neighbors = n_neighbors
         else:
@@ -130,6 +138,16 @@ epsilon
 Return the value of epsilon.'''
 
         return self._epsilon
+
+    @property
+    def epsilon_const(self):
+        '''
+Docstring:
+epsilon
+
+Return the value of epsilon.'''
+
+        return self._epsilon_const
 
     @property
     def n_neighbors(self):
@@ -216,7 +234,7 @@ Return the diffusion map.'''
         self._dist = _parallel_pairwise(
             self._data, self._data, cdist, n_jobs=self._n_jobs)
         dsn = np.median(np.sort(self._dist, 0)[1:self._n_neighbors + 1], 0)
-        self._epsilon = dsn.reshape(-1, 1) * dsn
+        self._epsilon = self._epsilon_const * dsn.reshape(-1, 1) * dsn
 
     def __generate_kernel(self):
 
@@ -264,7 +282,8 @@ Return the diffusion map.'''
             self._eigvecs = self._eigvecs / self._eigvecs[0, 0]
 
             # The following method can also be used to obtain the diffusion maps.
-            # It gives the same result possibly up to a phase.
+            # It gives the same result possibly up to a complex phase such that
+            # some of the vectors could be multiplied by -1.
 
             # dts = np.diag(self._d_alpha**(-1 / 2))
             # kt = dts @ self._kernel_alpha @ dts
@@ -284,10 +303,11 @@ Return the diffusion map.'''
                                time=None,
                                n_neighbors=None,
                                epsilon=None,
+                               epsilon_const=None,
                                n_eigvecs=None):
         '''
 Docstring:
-generate_diffusion_map(alpha=None, time=None, epsilon=None, n_neighbors=None, n_eigvecs=None)
+generate_diffusion_map(alpha=None, time=None, epsilon=None, epsilon_const=None, n_neighbors=None, n_eigvecs=None)
 
 Generate another diffusion map for the same instance with a different set of parameters.
 
@@ -300,6 +320,8 @@ time : float, optional (default = None)
      Time steps.
 epsilon : float, optional (default = None)
         Scale parameter.
+epsilon_const : float, optional (default = 1.0)
+        Scale parameter, multiplying the variable bandwidth, epsilon_const = O(1).
 n_neighbors : int, optional (default = None)
             Number of neighbors to calcualte epsilon.
 n_eigvecs : int, optional (default = None)
@@ -324,6 +346,8 @@ n_eigvecs : int, optional (default = None)
                 self._n_neighbors = None
 
             if n_neighbors is not None:
+                if epsilon_const is not None:
+                    self._epsilon_const = epsilon_const
                 self._n_neighbors = n_neighbors
 
             self.__generate_kernel()
