@@ -52,10 +52,10 @@ class Diffusion_Maps:
                  epsilon_const=1.0,
                  n_neighbors=10,
                  n_eigvecs=6,
-                 n_jobs=1):
+                 n_jobs=None):
         '''
 Docstring:
-Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, epsilon_const=1.0, n_neighbors=10, n_eigvecs=6, n_jobs=1)
+Diffusion_Maps(data, alpha=1.0, time=0.0, epsilon=None, epsilon_const=1.0, n_neighbors=10, n_eigvecs=6, n_jobs=None)
 
 Instantiate an object of type Diffusion_Maps.
 
@@ -76,7 +76,7 @@ n_neighbors : int, optional (default = 10)
             Number of neighbors to calcualte epsilon.
 n_eigvecs : int, optional (default = 6)
           Dimension of the embedding. It should be set to 'all' to calculate all the eigenvectors.
-n_jobs : int, optional (default = 1)
+n_jobs : int, optional (default = None)
        The number of parallel jobs to run when the distance matrix is to be calculated.
 If -1, then the number of jobs is set to the number of CPU cores.'''
 
