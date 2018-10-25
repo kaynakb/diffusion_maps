@@ -1,5 +1,5 @@
 # diffusion_maps.py is a compact python module for a modified version of the (an)isotropic
-# diffusion maps technique with a variable bandwith based on the research article by Coifman and 
+# diffusion maps technique with a variable bandwith based on the research article by Coifman and
 # Lafon [1]. The version of the modification used in the module is based on the discussion
 # presented in the research article by Zelnic-Manor and Perona [2].
 
@@ -23,14 +23,15 @@
 from timeit import default_timer as timer
 import numpy as np
 from scipy.spatial.distance import cdist
-from scipy.linalg import eigh
+from scipy.linalg import svd
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh, svds
-from sklearn.metrics.pairwise import _parallel_pairwise, rbf_kernel
+from sklearn.metrics import pairwise_distances
+from sklearn.metrics import pairwise_kernels
 
 __author__ = 'Burak T. Kaynak'
 __license__ = 'GPLv3'
-__version__ = '0.3'
+__version__ = '0.5'
 __email__ = 'kaynakb@gmail.com'
 
 
@@ -38,9 +39,9 @@ class Diffusion_Maps:
     'An implementation of (an)isotropic diffusion maps technique.'
 
     __slots__ = [
-        '_data', '_alpha', '_time', '_epsilon', '_epsilon_const', '_n_neighbors',
-        '_n_eigvecs', '_n_jobs', '_dist', '_kernel_alpha', '_d_alpha', '_eigvals',
-        '_eigvecs', '_diffusion_map'
+        '_data', '_alpha', '_time', '_epsilon', '_epsilon_const',
+        '_n_neighbors', '_n_eigvecs', '_n_jobs', '_dist', '_kernel_alpha',
+        '_d_alpha', '_eigvals', '_eigvecs', '_diffusion_map'
     ]
 
     def __init__(self,
@@ -231,8 +232,10 @@ Return the diffusion map.'''
 
     def __calc_epsilon(self):
 
-        self._dist = _parallel_pairwise(
-            self._data, self._data, cdist, n_jobs=self._n_jobs)
+        # if the data is not large, then cdist from scipy.spatial.distance
+        # will be faster.
+
+        self._dist = pairwise_distances(self._data, n_jobs=self._n_jobs)
         dsn = np.median(np.sort(self._dist, 0)[1:self._n_neighbors + 1], 0)
         self._epsilon = self._epsilon_const * dsn.reshape(-1, 1) * dsn
 
@@ -244,7 +247,11 @@ Return the diffusion map.'''
             self.__calc_epsilon()
             k_init = np.exp(-self._dist**2 / self._epsilon)
         else:
-            k_init = rbf_kernel(self._data, gamma=1 / self._epsilon)
+            k_init = pairwise_kernels(
+                self._data,
+                metric='rbf',
+                gamma=1 / self._epsilon,
+                n_jobs=self._n_jobs)
         # k_init = k_init - np.eye(k_init.shape[0])  # prohibits self-transitions
 
         d_init = np.sum(k_init, 1)
@@ -266,10 +273,19 @@ Return the diffusion map.'''
 
         if self._n_eigvecs == 'all':
 
-            l, v = eigh(self._kernel_alpha, b=np.diag(self._d_alpha))
-            self._eigvals = l[::-1]
-            self._eigvecs = v[:, ::-1]
+            ts = self._d_alpha**(-1 / 2)
+            dts = np.diag(ts)
+            kt = self._kernel_alpha * ts.reshape(-1, 1) * ts
+            if np.allclose(kt, kt.T):
+                pass
+            else:
+                kt = (kt + kt.T) / 2
+
+            u, s, vh = svd(kt)
+            self._eigvals = s
+            self._eigvecs = dts @ u
             self._eigvecs = self._eigvecs / self._eigvecs[0, 0]
+            self._diffusion_map = self._eigvecs * self._eigvals**self._time
 
         else:
 
@@ -281,12 +297,18 @@ Return the diffusion map.'''
             self._eigvecs = v[:, ::-1]
             self._eigvecs = self._eigvecs / self._eigvecs[0, 0]
 
-            # The following method can also be used to obtain the diffusion maps.
-            # It gives the same result possibly up to a complex phase such that
-            # some of the vectors could be multiplied by -1.
+            # The following method can be used to obtain the diffusion maps as
+            # well. It gives the same result possibly up to a complex phase
+            # such that some of the vectors could be multiplied by -1.
+            # If a larger set of eigenvalues & eigenvectors is sought, then
+            # the generalized eigenvalue problem method may not be reliable, so
+            # the next method should be used. However, computing a large set of
+            # eigenvalues & eigenvectors is slower than computing the whole set
+            # thereof.
 
-            # dts = np.diag(self._d_alpha**(-1 / 2))
-            # kt = dts @ self._kernel_alpha @ dts
+            # ts = self._d_alpha ** (-1 / 2)
+            # dts = np.diag(ts)
+            # kt = self._kernel_alpha * ts.reshape(-1, 1) * ts
             # if np.allclose(kt, kt.T):
             #     pass
             # else:
@@ -321,7 +343,7 @@ time : float, optional (default = None)
 epsilon : float, optional (default = None)
         Scale parameter.
 epsilon_const : float, optional (default = 1.0)
-        Scale parameter, multiplying the variable bandwidth, epsilon_const = O(1).
+              Scale parameter, multiplying the variable bandwidth, epsilon_const = O(1).
 n_neighbors : int, optional (default = None)
             Number of neighbors to calcualte epsilon.
 n_eigvecs : int, optional (default = None)
