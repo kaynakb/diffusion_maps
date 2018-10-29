@@ -168,7 +168,10 @@ n_eigvecs
 
 Return the number of eigenvectors.'''
 
-        return self._n_eigvecs
+        if self._n_eigvecs != 'all':
+            return self._n_eigvecs
+        else:
+            return self._eigvals.size
 
     @property
     def kernel(self):
