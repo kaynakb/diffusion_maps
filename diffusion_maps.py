@@ -1,5 +1,5 @@
 # diffusion_maps.py is a compact python module for a modified version of the (an)isotropic
-# diffusion maps technique with a variable bandwith based on the research article by Coifman and
+# diffusion maps technique with a variable bandwidth based on the research article by Coifman and
 # Lafon [1]. The version of the modification used in the module is based on the discussion
 # presented in the research article by Zelnic-Manor and Perona [2].
 
